@@ -14,8 +14,14 @@ class TestMicromedIO(
 ):
     ioclass = MicromedIO
     entities_to_download = ["micromed"]
-    entities_to_test = ["micromed/File_micromed_1.TRC"]
+    entities_to_test = ["micromed/File_micromed_1.TRC",
+                        "micromed/File_micromed_24bit.TRC"]
 
+    def test_micromed_24bit(self):
+        filepath_24bit = self.get_local_path("micromed/File_micromed_24bit.TRC")
+        reader = MicromedIO(filepath_24bit)
+        segment = reader.read_segment()
+        self.assertFalse((segment.analogsignals[0] > 10e5).any()) #An EEG-Signal above 10e5 uV is unrealistic
 
 if __name__ == "__main__":
     unittest.main()
