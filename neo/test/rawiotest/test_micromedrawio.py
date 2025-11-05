@@ -19,12 +19,13 @@ class TestMicromedRawIO(
         "micromed/File_micromed_1.TRC",
         "micromed/File_mircomed2.TRC",
         "micromed/File_mircomed2_2segments.TRC",
+        "micromed/File_micromed3_2segments.TRC",
     ]
 
     def test_micromed_multi_segments(self):
         file_full = self.get_local_path("micromed/File_mircomed2.TRC")
         file_splitted = self.get_local_path("micromed/File_mircomed2_2segments.TRC")
-
+        file_2segments = self.get_local_path("micromed/File_micromed3_2segments.TRC")
         # the second file contains 2 pieces of the first file
         # so it is 2 segments with the same traces but reduced
         # note that traces in the splited can differ at the very end of the cut
@@ -51,6 +52,10 @@ class TestMicromedRawIO(
             # we remove the last 100 sample because tools that cut traces is truncating the last buffer
             assert np.array_equal(traces2[:-100], traces1_chunk[:-100])
 
+        #Check that the start of the first segment is 0
+        reader3 = MicromedRawIO(file_2segments)
+        reader3.parse_header()
+        assert reader3.get_signal_t_start(block_index=0, seg_index=0, stream_index=0) == 0
 
 if __name__ == "__main__":
     unittest.main()

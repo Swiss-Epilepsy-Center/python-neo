@@ -107,6 +107,10 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
                 # 4 bytes u4 each
                 seg_start = int(np.frombuffer(f.read(4), dtype="u4")[0])
                 trace_offset = int(np.frombuffer(f.read(4), dtype="u4")[0])
+
+                if not self.info_segments and trace_offset != 0:
+                    self.info_segments.append((0,0))
+
                 if seg_start == 0 and trace_offset == 0:
                     break
                 else:
