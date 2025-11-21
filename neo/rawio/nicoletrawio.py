@@ -208,7 +208,7 @@ class NicoletRawIO(BaseRawIO):
             ("index", "uint32"),
         ]
 
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(172)
             n_tags = self.read_as_list(fid, [("n_tags", "uint32")])
             tags = [self.read_as_dict(fid, tags_structure) for _ in range(n_tags)]
@@ -228,7 +228,7 @@ class NicoletRawIO(BaseRawIO):
             ("l_qi", "uint64"),
             ("first_idx", "uint64", self.n_tags),
         ]
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(172208)
             qi = self.read_as_dict(fid, qi_structure)
         return qi
@@ -240,7 +240,7 @@ class NicoletRawIO(BaseRawIO):
         main_index = []
         current_index = 0
         next_index_pointer = self.qi["index_idx"]
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             while current_index < self.qi["n_entries"]:
                 fid.seek(next_index_pointer)
                 nr_index = self.read_as_list(fid, [("nr_index", "uint64")])
@@ -273,7 +273,7 @@ class NicoletRawIO(BaseRawIO):
         [dynamic_packets_instace] = self._get_index_instances(id_str="InfoChangeStream")
         offset = dynamic_packets_instace["offset"]
         n_dynamic_packets = int(dynamic_packets_instace["section_l"] / 48)
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(offset)
             for i in range(n_dynamic_packets):
                 guid_offset = offset + (i + 1) * 48
@@ -287,7 +287,7 @@ class NicoletRawIO(BaseRawIO):
                 dynamic_packet["id_str"] = id_str
                 dynamic_packets.append(dynamic_packet)
 
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             for i in range(n_dynamic_packets):
                 data = []
                 dynamic_packet_instances = self._get_index_instances(tag=dynamic_packets[i]["guid_as_str"])
@@ -325,7 +325,7 @@ class NicoletRawIO(BaseRawIO):
             ("n_values", "uint64"),
             ("n_bstr", "uint64"),
         ]
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(idx_instance["offset"])
             patient_info = self.read_as_dict(fid, patient_info_structure)
             for i in range(patient_info["n_values"]):
@@ -372,7 +372,7 @@ class NicoletRawIO(BaseRawIO):
         ]
         idx_instances = self._get_index_instances("SIGNALINFOGUID")
         for instance in idx_instances:
-            with open(self.filename, "rb") as fid:
+            with open(self.filename, "rb", buffering=256*1024) as fid:
                 fid.seek(instance["offset"])
                 signal_structure = self.read_as_dict(fid, signal_structure_segment)
                 fid.seek(664, 1)
@@ -399,7 +399,7 @@ class NicoletRawIO(BaseRawIO):
             ],
         ]
         idx_instance = self._get_index_instances("CHANNELGUID")[0]
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(idx_instance["offset"])
             channel_structure = self.read_as_dict(fid, channel_structure_structure[0])
             fid.seek(152, 1)
@@ -495,7 +495,7 @@ class NicoletRawIO(BaseRawIO):
         segments_properties = []
         [segment_instance] = self._get_index_instances("SegmentStream")
         n_segments = int(segment_instance["section_l"] / 152)
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             fid.seek(segment_instance["offset"], 0)
             for seg_index in range(n_segments):
                 segment_signal_channels = self._create_signal_channels(dtype=_signal_channel_dtype, seg_index=seg_index)
@@ -528,7 +528,7 @@ class NicoletRawIO(BaseRawIO):
             offset = instance["offset"]
             if i == 1:
                 offset += 248
-            with open(self.filename, "rb") as fid:
+            with open(self.filename, "rb", buffering=256*1024) as fid:
                 pkt_structure = [
                     ("guid", "uint8", 16),
                     ("len", "uint64"),
@@ -636,7 +636,7 @@ class NicoletRawIO(BaseRawIO):
         """
         montages = []
         montage_instances = self._get_index_instances(id_str="DERIVATIONGUID")
-        with open(self.filename, "rb") as fid:
+        with open(self.filename, "rb", buffering=256*1024) as fid:
             montage_info_structure = [
                 [
                     ("name", "S2", 32),
@@ -942,9 +942,9 @@ class NicoletRawIO(BaseRawIO):
         cum_segment_duration = [0] + list(
             np.cumsum([(segment["duration"].total_seconds()) for segment in self.segments_properties])
         )
-        data = np.empty([(i_stop - i_start) * len(channel_indexes)])
-        section_slices = []
-        for channel_index in channel_indexes:
+        data = np.empty([i_stop - i_start, len(channel_indexes)])
+        section_slices = {}
+        for i, channel_index in enumerate(channel_indexes):
             current_samplingrate = self.segments_properties[seg_index]["sampling_rates"][channel_index]
 
             [tag_idx] = [tag["index"] for tag in self.tags if tag["tag"] == str(channel_index)]
@@ -961,15 +961,36 @@ class NicoletRawIO(BaseRawIO):
             )
             sections = all_sections[first_section_for_seg:last_section_for_seg]
             sections_length = section_lengths[first_section_for_seg:last_section_for_seg]
-            section_slices.append(self._get_section_slices(sections, sections_length, i_start, i_stop))
+            section_slices[i] = self._get_section_slices(sections, sections_length, i_start, i_stop)
 
-        np_idx = 0
-        for slices in section_slices:
+
+        start_idx = section_slices[0][0].start
+        stop_idx = section_slices[i][-1].stop
+        data_length = stop_idx - start_idx
+        full_data = np.empty([data_length])
+
+
+        byte_offset = self.signal_data_offset + start_idx * 2  # 2 bytes per int16
+        byte_count = data_length * 2
+
+
+        with open(self.filename, 'rb', buffering=1024*1024) as f:
+            f.seek(byte_offset)
+            raw_bytes = f.read(byte_count)
+            full_data[0:data_length] = np.frombuffer(raw_bytes, dtype='i2')
+
+        initial_offset = start_idx
+
+        for column, slices in section_slices.items():
+            np_idx = 0
             for single_slice in slices:
+                full_data_start = single_slice.start - initial_offset
+                full_data_stop = single_slice.stop - initial_offset
                 slice_length = single_slice.stop - single_slice.start
-                data[np_idx : (np_idx + slice_length)] = self.raw_signal[single_slice.start : single_slice.stop]
+                data[np_idx:(np_idx+slice_length),column] = full_data[slice(full_data_start, full_data_stop)]
                 np_idx += slice_length
-        return np.reshape(data, (len(section_slices), int(np_idx / len(section_slices)))).T
+
+        return data
 
     def _get_section_slices(self, sections, sections_length, i_start, i_stop):
         section_slices = []

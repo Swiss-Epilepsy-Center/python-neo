@@ -51,7 +51,8 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
         self.filename = filename
 
     def _parse_header(self):
-        with open(self.filename, "rb") as fid:
+        
+        with open(self.filename, "rb", buffering=1048576) as fid:
             f = StructFile(fid)
 
             # Name
@@ -72,6 +73,7 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
                 raise NotImplementedError(f"`header_version {header_version} is not implemented in neo yet")
 
             # area
+            
             f.seek(176)
             zone_names = [
                 "ORDER",
@@ -91,22 +93,34 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
                 "TRIGGER",
             ]
             zones = {}
-            for zname in zone_names:
-                zname2, pos, length = f.read_f("8sII")
+
+            zone_dtype = np.dtype([("name", "S8"), ("pos", "u4"), ("length", "u4")])
+            zones_buffer = f.read(15 * zone_dtype.itemsize)
+            zones_array = np.frombuffer(zones_buffer, zone_dtype)
+
+            for i, zname in enumerate(zone_names):
+                zname2 = zones_array[i]["name"]
+                pos = int(zones_array[i]["pos"])
+                length = int(zones_array[i]["length"])
                 zones[zname] = zname2, pos, length
                 if zname != zname2.decode("ascii").strip(" "):
                     raise NeoReadWriteError("expected the zone name to match")
 
             # "TRONCA" zone define segments
+            
             zname2, pos, length = zones["TRONCA"]
             f.seek(pos)
-            # this number avoid a infinite loop in case of corrupted  TRONCA zone (seg_start!=0 and trace_offset!=0)
             max_segments = 100
             self.info_segments = []
+            self.info_segments.append((0, 0))
+
+
+            seg_buffer = f.read(max_segments * 8)
+            seg_data = np.frombuffer(seg_buffer, dtype="u4").reshape(-1, 2)
+
             for i in range(max_segments):
-                # 4 bytes u4 each
-                seg_start = int(np.frombuffer(f.read(4), dtype="u4")[0])
-                trace_offset = int(np.frombuffer(f.read(4), dtype="u4")[0])
+                seg_start = int(seg_data[i, 0])
+                trace_offset = int(seg_data[i, 1])
                 if seg_start == 0 and trace_offset == 0:
                     break
                 else:
@@ -130,27 +144,40 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
             units_code = {-1: "nV", 0: "uV", 1: "mV", 2: 1, 100: "percent", 101: "dimensionless", 102: "dimensionless"}
             signal_channels = []
             sig_grounds = []
+
+
+            struct_5i = struct.Struct("iiiii")
+            struct_h = struct.Struct("h")
+            struct_H = struct.Struct("H")
+
+
+            zname2, pos, length = zones["LABCOD"]
             for c in range(Num_Chan):
-                zname2, pos, length = zones["LABCOD"]
                 # Force code[c] which is currently a uint16 (or u2) into a int to prevent integer overflow
                 # for the following operation -- code[c] * 128 + 2.
-                # An integer overflow below may have side - effects including but not limited
+                # An integer overflow below may have side-effects including but not limited
                 # to having repeated channel names.
-                f.seek(pos + int(code[c]) * 128 + 2, 0)
 
-                chan_name = f.read(6).strip(b"\x00").decode("ascii")
-                ground = f.read(6).strip(b"\x00").decode("ascii")
+                f.seek(pos + int(code[c]) * 128 + 2, 0)
+                chan_block = f.read(128)
+
+
+                chan_name = chan_block[0:6].strip(b"\x00").decode("ascii")
+                ground = chan_block[6:12].strip(b"\x00").decode("ascii")
                 sig_grounds.append(ground)
-                logical_min, logical_max, logical_ground, physical_min, physical_max = f.read_f("iiiii")
-                (k,) = f.read_f("h")
+
+
+                logical_min, logical_max, logical_ground, physical_min, physical_max = struct_5i.unpack(chan_block[12:32])
+
+                k = struct_h.unpack(chan_block[32:34])[0]
                 units = units_code.get(k, "uV")
 
                 factor = float(physical_max - physical_min) / float(logical_max - logical_min + 1)
                 gain = factor
                 offset = -logical_ground * factor
 
-                f.seek(8, 1)
-                (sampling_rate,) = f.read_f("H")
+
+                sampling_rate = struct_H.unpack(chan_block[42:44])[0]
                 sampling_rate *= Rate_Min
                 chan_id = str(c)
                 signal_channels.append(
