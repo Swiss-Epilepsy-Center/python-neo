@@ -20,22 +20,22 @@ class TestNicoletIO(
     unittest.TestCase,
 ):
     ioclass = NicoletIO
-    entities_to_download = ["nicolet"]
+    entities_to_download = [
+        "nicolet/scalp_eeg/scalp_eeg.e",
+        "nicolet/multi_segment/multi_segment.e",
+        "nicolet/intracranial_high_rate/intracranial_high_rate.e",
+    ]
     entities_to_test = [
-        "nicolet/e_files/test.e",
+        "nicolet/scalp_eeg/scalp_eeg.e",
+        "nicolet/multi_segment/multi_segment.e",
+        "nicolet/intracranial_high_rate/intracranial_high_rate.e",
     ]
 
     def setUp(self):
         super().setUp()
-        for entity in self.entities_to_test:
-            full_path = get_test_file_full_path(self.ioclass, filename=entity, directory=self.local_test_dir)
-            pathlib.Path(full_path).touch()
 
     def tearDown(self) -> None:
         super().tearDown()
-        for entity in self.entities_to_test:
-            full_path = get_test_file_full_path(self.ioclass, filename=entity, directory=self.local_test_dir)
-            pathlib.Path(full_path).unlink(missing_ok=True)
 
     def test_read_segment_lazy(self):
         for entity in self.entities_to_test:
