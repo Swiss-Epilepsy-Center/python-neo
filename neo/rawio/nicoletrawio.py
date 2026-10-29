@@ -117,51 +117,6 @@ class NicoletRawIO(BaseRawIO):
         "maritalStatus",
     ]
 
-    HC_EVENT = {
-        "{A5A95612-A7F8-11CF-831A-0800091B5BDA}": "Annotation",
-        "{A5A95646-A7F8-11CF-831A-0800091B5BDA}": "Seizure",
-        "{08784382-C765-11D3-90CE-00104B6F4F70}": "Format change",
-        "{6FF394DA-D1B8-46DA-B78F-866C67CF02AF}": "Photic",
-        "{481DFC97-013C-4BC5-A203-871B0375A519}": "Posthyperventilation",
-        "{725798BF-CD1C-4909-B793-6C7864C27AB7}": "Review progress",
-        "{96315D79-5C24-4A65-B334-E31A95088D55}": "Exam start",
-        "{A5A95608-A7F8-11CF-831A-0800091B5BDA}": "Hyperventilation",
-        "{A5A95617-A7F8-11CF-831A-0800091B5BDA}": "Impedance",
-        "{A5A95645-A7F8-11CF-831A-0800091B5BDA}": "Event Comment",
-        "{C3B68051-EDCF-418C-8D53-27077B92DE22}": "Spike",
-        "{99FFE0AA-B8F9-49E5-8390-8F072F4E00FC}": "EEG Check",
-        "{A5A9560A-A7F8-11CF-831A-0800091B5BDA}": "Print",
-        "{A5A95616-A7F8-11CF-831A-0800091B5BDA}": "Patient Event",
-        "{0DE05C94-7D03-47B9-864F-D586627EA891}": "Eyes closed",
-        "{583AA2C6-1F4E-47CF-A8D4-80C69EB8A5F3}": "Eyes open",
-        "{BAE4550A-8409-4289-9D8A-0D571A206BEC}": "Eating",
-        "{1F3A45A4-4D0F-4CC4-A43A-CAD2BC2D71F2}": "ECG",
-        "{B0BECF64-E669-42B1-AE20-97A8B0BBEE26}": "Toilet",
-        "{A5A95611-A7F8-11CF-831A-0800091B5BDA}": "Fix Electrode",
-        "{08EC3F49-978D-4FE4-AE77-4C421335E5FF}": "Prune",
-        "{0A205CD4-1480-4F02-8AFF-4E4CD3B21078}": "Artifact",
-        "{A5A95609-A7F8-11CF-831A-0800091B5BDA}": "Print D",
-        "{A5A95637-A7F8-11CF-831A-0800091B5BDA}": "Tachycardia",
-        "{A0172995-4A24-401C-AB68-B585474E4C07}": "Seizure",
-        "{FF37D596-5703-43F9-A3F3-FA572C5D958C}": "Spike wave",
-        "{9DF82C59-6520-46E5-940F-16B1282F3DD6}": "EEG Check-theta li T",
-        "{06519E79-3C7B-4535-BA76-2AD76B6C65C8}": "Kom.-*",
-        "{CA4FCAD4-802E-4214-881A-E9C1C6549ABD}": "Arousal",
-        "{A5A95603-A7F8-11CF-831A-0800091B5BDA}": "Blink",
-        "{77A38C02-DCD4-4774-A47D-40437725B278}": "+Anfallsmuster D-?",
-        "{32DB96B9-ED12-429A-B98D-27B2A82AD61F}": "spike wave",
-        "{24387A0E-AA04-40B4-82D4-6D58F24D59AB}": "Anfallsmuster",
-        "{A5A95636-A7F8-11CF-831A-0800091B5BDA}": "Bradycardia",
-        "{93A2CB2C-F420-4672-AA62-18989F768519}": "Detections Inactive",
-        "{8C5D49BA-7105-4355-BF6C-B35B9A4E594A}": "EEG-Check",
-        "{5A946B85-2E1D-46B8-9FB2-C0519C9BE681}": "Zaehneputzen",
-        "{48DA028A-5264-4620-AD03-C8787951E237}": "Bewegt",
-        "{C15CFF61-0326-4276-A08F-0BFC2354E7CC}": "Kratzt",
-        "{F4DD5874-23BA-4FFA-94DD-BE436BB6910F}": "Anfall",
-        "{A5A95610-A7F8-11CF-831A-0800091B5BDA}": "Flash",
-        "{8CB92AA7-A886-4013-8D52-6CD1C71C72B4}": "ETP",
-    }
-
     def __init__(self, filename=""):
         BaseRawIO.__init__(self)
         self.filename = filename
@@ -192,6 +147,7 @@ class NicoletRawIO(BaseRawIO):
         )
 
         self.segments_properties = self._get_segment_properties()
+        self.event_kv = self._get_event_list()
         self.events = self._get_events()
         self.montages, self.display = self._get_montage()
         self.raw_signal = self._get_raw_signal()
@@ -516,6 +472,45 @@ class NicoletRawIO(BaseRawIO):
 
         return segments_properties
 
+    def _get_event_list(self):
+
+        event_kv_structure = [
+            [("guid", "uint8", 16)],
+            [("description", "S2", 256), ("abbreviation", "S2", 32)],
+        ]
+
+        events_lookup = {}
+
+        event_info_instance = self._get_index_instances(id_str="EVENTTYPEINFOGUID")
+
+        for i, instance in enumerate(event_info_instance):
+            with open(self.filename, "rb") as fid:
+                offset = instance["offset"]
+                fid.seek(offset)
+                pkt_structure = [
+                    [
+                        ("guid", "uint8", 16),
+                        ("len", "uint64"),
+                    ],
+                    [
+                        ("n_events", "uint32"),
+                    ],
+                ]
+                pkt = self.read_as_dict(fid, pkt_structure[0])
+                pkt["guid"] = self._convert_to_guid(pkt["guid"])
+                fid.seek(720, 1)
+                pkt = pkt | self.read_as_dict(fid, pkt_structure[1])
+                fid.seek(4, 1)
+                for _ in range(pkt["n_events"]):
+                    event_kv = self.read_as_dict(fid, event_kv_structure[0])
+                    event_kv["guid"] = self._convert_to_guid(event_kv["guid"])
+                    fid.seek(16, 1)
+                    event_kv = event_kv | self.read_as_dict(fid, event_kv_structure[1])
+                    events_lookup[event_kv["guid"]] = event_kv
+                    fid.seek(68 * 8, 1)
+
+        self.events_lookup = events_lookup
+
     def _get_events(self):
         """
         Get all events
@@ -562,9 +557,15 @@ class NicoletRawIO(BaseRawIO):
                     event["timestamp"] = (event["date"] - self.segments_properties[0]["date"]).total_seconds()
 
                     event["guid"] = self._convert_to_guid(event["guid"])
-                    event_str = self.HC_EVENT.get(event["guid"], "UNKNOWN")
-
-                    if event["timestamp"] < -1 and event_str == "UNKNOWN":
+                    event_str = self.events_lookup.get(
+                        event["guid"],
+                        {
+                            "guid": event["guid"],
+                            "description": event["guid"],
+                            "abbreviation": event["guid"],
+                        },
+                    )
+                    if event["timestamp"] < -1 and event_str["abbreviation"] == event["guid"]:
                         if pkt["len"] > 1e6:  # Packet Length of more than 1e6 indicates a corrupted event
                             warnings.warn(
                                 f"Corrupted event, only {n_events - 1} events were correctly read", BytesWarning
@@ -583,12 +584,17 @@ class NicoletRawIO(BaseRawIO):
                             break
 
                     n_events += 1
-                    if event_str == "Annotation" or event_str == "Event Comment":
+                    # Annotations or Comments have different names depending on the language settings of the recording system, hence use GUIDs
+                    if event["guid"] in [
+                        "{A5A95612-A7F8-11CF-831A-0800091B5BDA}",
+                        "{A5A95645-A7F8-11CF-831A-0800091B5BDA}",
+                    ]:
                         fid.seek(31, 1)
                         annotation = self.read_as_list(fid, [("annotation", "S2", event["text_length"])])
                         event["label"] = annotation
                     else:
-                        event["label"] = event_str
+                        event["label"] = event_str["abbreviation"]
+                        event["description"] = event_str["description"]
 
                     event["block_index"] = 0
                     seg_index = 0
