@@ -64,7 +64,11 @@ class MicromedRawIO(BaseRawWithBufferApiIO):
             rec_datetime = datetime.datetime(year + 1900, month, day, hour, minute, sec)
 
             Data_Start_Offset, Num_Chan, Multiplexer, Rate_Min, Bytes = f.read_f("IHHHH", offset=138)
-            sig_dtype = "u" + str(Bytes)
+
+            if Bytes == 4:
+                sig_dtype = "i4"
+            else:
+                sig_dtype = "u" + str(Bytes)
 
             # header version
             (header_version,) = f.read_f("b", offset=175)
